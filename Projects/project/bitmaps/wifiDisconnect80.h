@@ -1,0 +1,1 @@
+extern GUI_CONST_STORAGE GUI_BITMAP bmwifiDisconnect80;
