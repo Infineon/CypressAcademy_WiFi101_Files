@@ -71,12 +71,6 @@
 #include "cy_lwip.h"
 
 /*******************************************************************************
-* Macros
-********************************************************************************/
-/* RTOS related macros for TCP server task. */
-
-
-/*******************************************************************************
 * Function Prototypes
 ********************************************************************************/
 cy_rslt_t create_tcp_server_socket(void);
@@ -195,7 +189,7 @@ void tcp_server_task(void *arg)
     else
     {
         printf("===============================================================\n");
-        printf("Listening for incoming TCP client connection on Port: %d\n",
+        printf("Listening for incoming TCP client connection on Port: %d\n\n",
                 tcp_server_addr.port);
     }
 
@@ -223,6 +217,15 @@ cy_rslt_t connect_to_wifi_ap(void)
             .interface = CY_WCM_INTERFACE_TYPE_STA
     };
 
+    /* Initialize Wi-Fi connection manager. */
+	result = cy_wcm_init(&wifi_config);
+	if (result != CY_RSLT_SUCCESS)
+	{
+		printf("Wi-Fi Connection Manager initialization failed!\n");
+		return result;
+	}
+	printf("Wi-Fi Connection Manager initialized.\n");
+
     cy_wcm_ip_address_t ip_address;
 
     /* Variable to track the number of connection retries to the Wi-Fi AP specified
@@ -230,17 +233,7 @@ cy_rslt_t connect_to_wifi_ap(void)
      */
      int conn_retries = 0;
 
-     /* Initialize Wi-Fi connection manager. */
-    result = cy_wcm_init(&wifi_config);
-
-    if (result != CY_RSLT_SUCCESS)
-    {
-        printf("Wi-Fi Connection Manager initialization failed!\n");
-        return result;
-    }
-    printf("Wi-Fi Connection Manager initialized.\r\n");
-
-     /* Set the Wi-Fi SSID, password and security type. */
+    /* Set the Wi-Fi SSID, password and security type. */
     memset(&wifi_conn_param, 0, sizeof(cy_wcm_connect_params_t));
     memcpy(wifi_conn_param.ap_credentials.SSID, WIFI_SSID, sizeof(WIFI_SSID));
     memcpy(wifi_conn_param.ap_credentials.password, WIFI_PASSWORD, sizeof(WIFI_PASSWORD));
@@ -442,12 +435,20 @@ void sendAck(char *message, cy_socket_t socket_handle){
 		if(result == CY_RSLT_MODULE_SECURE_SOCKETS_CLOSED)
 		{
 			/* Disconnect the socket. */
-			cy_socket_disconnect(client_handle, 0);
+			cy_socket_disconnect(socket_handle, 0);
+			if(result != CY_RSLT_SUCCESS){
+				printf("Disconnect Failed!\n");
+				CY_ASSERT(0);
+			}
+			/* Delete the client socket. */
+			result = cy_socket_delete(socket_handle);
+			if(result != CY_RSLT_SUCCESS){
+				printf("Socket Delete Failed!\n");
+				CY_ASSERT(0);
+			}
 		}
 	}
-
 }
-
 
  /*******************************************************************************
  * Function Name: tcp_receive_msg_handler
@@ -488,7 +489,7 @@ cy_rslt_t tcp_receive_msg_handler(cy_socket_t socket_handle, void *arg)
 
     if(result == CY_RSLT_SUCCESS)
     {
-        printf("\r\nMessage from TCP Client: %s\n", messageString);
+        printf("Message from TCP Client: %s\n", messageString);
 
         // to many characters, reject
         if(strlen(messageString) > 12){
@@ -559,10 +560,14 @@ cy_rslt_t tcp_receive_msg_handler(cy_socket_t socket_handle, void *arg)
         if(result == CY_RSLT_MODULE_SECURE_SOCKETS_CLOSED)
         {
             /* Disconnect the socket. */
-            cy_socket_disconnect(socket_handle, 0);
+			cy_socket_disconnect(socket_handle, 0);
+
+			/* Delete the client socket. */
+			result = cy_socket_delete(socket_handle);
+
             printf("TCP Client disconnected! Please reconnect the TCP Client\n");
 			printf("===============================================================\n");
-			printf("Listening for incoming TCP client connection on Port:%d\n", tcp_server_addr.port);
+			printf("Listening for incoming TCP client connection on Port:%d\n\n", tcp_server_addr.port);
         }
         else{
         	printf("Failed to receive message from the TCP client. Error: %d\n", (int)result);
@@ -590,12 +595,22 @@ cy_rslt_t tcp_disconnection_handler(cy_socket_t socket_handle, void *arg)
 {
     cy_rslt_t result;
 
-    /* Disconnect the TCP client. */
-    result = cy_socket_disconnect(socket_handle, 0);
+    /* Disconnect the socket. */
+	result = cy_socket_disconnect(socket_handle, 0);
+	if(result != CY_RSLT_SUCCESS){
+		printf("Disconnect Failed!\n");
+		CY_ASSERT(0);
+	}
+	/* Delete the client socket. */
+	result = cy_socket_delete(socket_handle);
+	if(result != CY_RSLT_SUCCESS){
+		printf("Socket Delete Failed!\n");
+		CY_ASSERT(0);
+	}
 
     printf("TCP Client disconnected! Please reconnect the TCP Client\n");
     printf("===============================================================\n");
-    printf("Listening for incoming TCP client connection on Port:%d\n", tcp_server_addr.port);
+    printf("Listening for incoming TCP client connection on Port:%d\n\n", tcp_server_addr.port);
 
     return result;
 }

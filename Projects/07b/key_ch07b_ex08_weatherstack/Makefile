@@ -107,6 +107,7 @@ DEFINES += HTTP_USER_AGENT_VALUE="\"anycloud-http-client\""
 DEFINES+=CY_SD_HOST_CLK_RAMP_UP_TIME_MS_WAKEUP=0
 DEFINES+=CY_WIFI_HOST_WAKE_SW_FORCE=0
 DEFINES+=TFT_SUPPORTED
+DEFINES+=CY_RTOS_AWARE
 
 # Select softfp or hardfp floating point. Default is softfp.
 VFP_SELECT=

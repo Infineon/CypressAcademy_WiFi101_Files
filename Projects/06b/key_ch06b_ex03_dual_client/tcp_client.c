@@ -141,6 +141,13 @@ void tcp_client_task(void *arg){
     // Server Address
     cy_socket_sockaddr_t tcp_server_address;
     result = cy_socket_gethostbyname("awep.local", CY_SOCKET_IP_VER_V4, &tcp_server_address.ip_address);
+    if(result == CY_RSLT_MODULE_SECURE_SOCKETS_HOST_NOT_FOUND && !security){
+    	printf("Server not found!\n");
+    	CY_ASSERT(0);
+    }
+    if(!security){
+    	printf("AWEP server found!\n");
+    }
 
     /* Variable to receive LED ON/OFF command from the user button ISR. */
 	uint32_t led_state_cmd = LED_OFF_CMD;
@@ -170,6 +177,7 @@ void tcp_client_task(void *arg){
 			printf("Failed cy_tls_create_identity! Error code: %d\n", (int)result);
 			CY_ASSERT(0);
 		}
+		printf("Press user button 1 to send a secure message!\n");
     }
 
     // Non-Secure specific setup
@@ -177,6 +185,8 @@ void tcp_client_task(void *arg){
 
 		//Non Secure Port
 		tcp_server_address.port = TCP_SERVER_PORT;
+		vTaskDelay(20);
+		printf("Press user button 2 to send a non-secure message!\n");
 	}
 
 	while(1){

@@ -13,7 +13,7 @@ uint32_t dbGetMax()
 dbEntry_t *dbFind(dbEntry_t *head, dbEntry_t *find){
 	dbEntry_t *rval = NULL;
 	//loop through linked list and check if any entries match
-	while(head->next != NULL){
+	while(head != NULL){
 		if(head->deviceId == find->deviceId && head->regId == find->regId){
 			rval = head;
 			return rval;
@@ -41,6 +41,7 @@ void dbSetValue(dbEntry_t *head, dbEntry_t *newValue){
         head->next = newValue;
     }
 }
+
 //get number of entries in the list
 uint32_t dbGetCount(dbEntry_t *head){
     uint32_t count = 1;

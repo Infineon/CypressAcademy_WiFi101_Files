@@ -49,7 +49,7 @@
 
 TimerHandle_t myTimer;
 
-void toggleLED(void *arg){
+void toggleLED(TimerHandle_t xTimer){
 	cyhal_gpio_toggle(CYBSP_USER_LED);
 
 }

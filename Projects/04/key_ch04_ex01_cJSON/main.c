@@ -49,8 +49,11 @@ int main(void){
     cy_rslt_t result;
     /* Initialize the device and board peripherals */
     result = cybsp_init();
-    CY_ASSERT(result == CY_RSLT_SUCCESS);
-
+    if (result != CY_RSLT_SUCCESS)
+    {
+        CY_ASSERT(0);
+    }
+    
     /* Initialize retarget-io to use the debug UART port. */
 	cy_retarget_io_init(CYBSP_DEBUG_UART_TX, CYBSP_DEBUG_UART_RX, CY_RETARGET_IO_BAUDRATE);
 

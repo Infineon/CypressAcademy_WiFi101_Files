@@ -197,7 +197,12 @@ void tcp_client_task(void *arg)
 	 */
 	cy_socket_sockaddr_t tcp_server_address;
 	result = cy_socket_gethostbyname("awep.local", CY_SOCKET_IP_VER_V4, &tcp_server_address.ip_address);
+	if(result == CY_RSLT_MODULE_SECURE_SOCKETS_HOST_NOT_FOUND){
+		printf("Server not found!\n");
+		CY_ASSERT(0);
+	}
 	tcp_server_address.port = TCP_SERVER_PORT;
+	printf("AWEP server found! Press the user button to send a message!\n");
 
 	/* Connected */
 	while(1){

@@ -33,6 +33,23 @@ extern bool isConnected;
 extern SemaphoreHandle_t setTempSemaphore;
 extern SemaphoreHandle_t isConnectedSemaphore;
 
+// Capsense deep sleep callback objects
+/* SysPm callback params */
+cy_stc_syspm_callback_params_t callback_params =
+{
+    .base       = CYBSP_CSD_HW,
+    .context    = &cy_capsense_context
+};
+cy_stc_syspm_callback_t capsense_deep_sleep_cb =
+{
+    Cy_CapSense_DeepSleepCallback,
+    CY_SYSPM_DEEPSLEEP,
+    (CY_SYSPM_SKIP_CHECK_FAIL | CY_SYSPM_SKIP_BEFORE_TRANSITION | CY_SYSPM_SKIP_AFTER_TRANSITION),
+    &callback_params,
+    NULL,
+    NULL
+};
+
 /*******************************************************************************
 * Function Name: capsense_isr
 ********************************************************************************
@@ -79,10 +96,12 @@ void capsense_task(void* pvParameters){
 		.intrPriority = CAPSENSE_INTERRUPT_PRIORITY,
 	};
 	Cy_CapSense_Init(&cy_capsense_context);
-	// Init capsense interrupt
+	// Init Capsense interrupt
 	Cy_SysInt_Init(&CapSense_interrupt_config, capsense_isr);
 	NVIC_ClearPendingIRQ(CapSense_interrupt_config.intrSrc);
 	NVIC_EnableIRQ(CapSense_interrupt_config.intrSrc);
+	// Deep sleep callback
+	Cy_SysPm_RegisterCallback(&capsense_deep_sleep_cb);
 	// Enable Capsense
 	Cy_CapSense_Enable(&cy_capsense_context);
 

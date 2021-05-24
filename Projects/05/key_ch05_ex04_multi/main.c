@@ -74,6 +74,10 @@ void printWiFi(){
 	else if(currentSecurity == CY_WCM_SECURITY_OPEN){
 		wifiSecurity = "Open";
 	}
+	else
+	{
+		wifiSecurity = "Other";
+	}
 	printf("SSID: %s\nSecurity: %s\nPassword: %s\n", currentSSID, wifiSecurity, currentPswd);
 }
 
@@ -91,10 +95,10 @@ void changeWiFi(char *ssid, char *passPhrase, cy_wcm_security_t security){
 	uint32_t retry_count;
 
 	/* Configure the connection parameters for the Wi-Fi interface. */
-		memset(&connect_param, 0, sizeof(cy_wcm_connect_params_t));
-		memcpy(connect_param.ap_credentials.SSID, ssid, strlen(ssid));
-		memcpy(connect_param.ap_credentials.password, passPhrase, strlen(passPhrase));
-		connect_param.ap_credentials.security = security;
+	memset(&connect_param, 0, sizeof(cy_wcm_connect_params_t));
+	memcpy(connect_param.ap_credentials.SSID, ssid, strlen(ssid));
+	memcpy(connect_param.ap_credentials.password, passPhrase, strlen(passPhrase));
+	connect_param.ap_credentials.security = security;
 
 	/* Connect to the Wi-Fi AP. */
 	connected = false;
@@ -149,26 +153,17 @@ void changeWiFi(char *ssid, char *passPhrase, cy_wcm_security_t security){
 		}
 	}
 
-
 }
 
 void wifi_connect(void *arg){
-	cy_rslt_t result;
-	cy_wcm_connect_params_t connect_param;
 
 	/* Configure the interface as a Wi-Fi STA (i.e. Client). */
 	cy_wcm_config_t config = {.interface = CY_WCM_INTERFACE_TYPE_STA};
 
-	/* Initialize the Wi-Fi Connection Manager and return if the operation fails. */
-	result = cy_wcm_init(&config);
+	/* Initialize the Wi-Fi Connection Manager. */
+	cy_wcm_init(&config);
 
 	printf("\nWi-Fi Connection Manager initialized.\n");
-
-	/* Configure the connection parameters for the Wi-Fi interface. */
-	memset(&connect_param, 0, sizeof(cy_wcm_connect_params_t));
-	memcpy(connect_param.ap_credentials.SSID, WIFI_SSID, sizeof(WIFI_SSID));
-	memcpy(connect_param.ap_credentials.password, WIFI_PASSWORD, sizeof(WIFI_PASSWORD));
-	connect_param.ap_credentials.security = WIFI_SECURITY;
 
 	/* Connect to the Wi-Fi AP. */
 	changeWiFi(WIFI_SSID, WIFI_PASSWORD, WIFI_SECURITY);
@@ -235,13 +230,16 @@ int main(void)
     __enable_irq();
 
     /* \x1b[2J\x1b[;H - ANSI ESC sequence to clear screen. */
-    printf("\x1b[2J\x1b[;H\n");
+    printf("\x1b[2J\x1b[;H");
+    printf("============================================================\n");
+    printf("WiFi 101 - 5: Multi\n");
+    printf("============================================================\n\n");
 
     /* Create the MQTT Client task. */
 	xTaskCreate(wifi_connect, "wifi_connect_task", 1024, NULL, 5, NULL);
 
 	/* Create the button watching task. */
-	xTaskCreate(watchButtons, "watch_buttons_task", 1024, NULL, 5, NULL);
+	xTaskCreate(watchButtons, "watch_buttons_task", 1024, NULL, 4, NULL);
 
 	/* Never Returns */
 	vTaskStartScheduler();

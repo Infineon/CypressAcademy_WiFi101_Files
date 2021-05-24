@@ -34,7 +34,7 @@
 #include <whd_types.h>
 
 // Enable mDNS queries
-#define LWIP_DNS_SUPPORT_MDNS_QUERIES 	(1)
+#define LWIP_DNS_SUPPORT_MDNS_QUERIES	(1)
 
 #define MEM_ALIGNMENT                   (4)
 
@@ -83,7 +83,7 @@
 //
 #define LWIP_PROVIDE_ERRNO              (1)
 
-#ifndef __ICCARM__
+#if defined(__GNUC__) && !defined(__ARMCC_VERSION)
 //
 // Use the timeval from the GCC library, not the one
 // from LWIP
@@ -274,5 +274,7 @@
 #define LWIP_NETIF_STATUS_CALLBACK    (1)
 #define LWIP_NETIF_LINK_CALLBACK      (1)
 #define LWIP_NETIF_REMOVE_CALLBACK    (1)
+
+#define LWIP_CHKSUM_ALGORITHM         (3)
 
 extern void sys_check_core_locking() ;

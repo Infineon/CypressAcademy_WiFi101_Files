@@ -386,7 +386,17 @@ void sendAck(char *message, cy_socket_t socket_handle, bool security){
 
 
 	// Disconnect once the ack has been sent
-	cy_socket_disconnect(socket_handle, 0);
+	result = cy_socket_disconnect(socket_handle, 0);
+	if(result != CY_RSLT_SUCCESS){
+		printf("Disconnect Failed!\n");
+		CY_ASSERT(0);
+	}
+	/* Delete the client socket. */
+	result = cy_socket_delete(socket_handle);
+	if(result != CY_RSLT_SUCCESS){
+		printf("Socket Delete Failed!\n");
+		CY_ASSERT(0);
+	}
 
 	// Print the connection information
 	if(security){
@@ -564,8 +574,12 @@ cy_rslt_t tcp_receive_msg_handler(cy_socket_t socket_handle, void *arg){
         if(result == CY_RSLT_MODULE_SECURE_SOCKETS_CLOSED)
         {
             /* Disconnect the socket. */
-            cy_socket_disconnect(socket_handle, 0);
+			result = cy_socket_disconnect(socket_handle, 0);
+
+			/* Delete the client socket. */
+			result = cy_socket_delete(socket_handle);
         }
+
     }
 
     return result;
@@ -589,8 +603,18 @@ cy_rslt_t tcp_disconnection_handler(cy_socket_t socket_handle, void *arg){
 
     cy_rslt_t result;
 
-    /* Disconnect the TCP client. */
-    result = cy_socket_disconnect(socket_handle, 0);
+    /* Disconnect the socket. */
+	result = cy_socket_disconnect(socket_handle, 0);
+	if(result != CY_RSLT_SUCCESS){
+		printf("Disconnect Failed!\n");
+		CY_ASSERT(0);
+	}
+	/* Delete the client socket. */
+	result = cy_socket_delete(socket_handle);
+	if(result != CY_RSLT_SUCCESS){
+		printf("Socket Delete Failed!\n");
+		CY_ASSERT(0);
+	}
 
     return result;
 }

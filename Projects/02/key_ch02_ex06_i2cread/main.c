@@ -61,24 +61,39 @@ int main(void)
 
     /* Initialize the device and board peripherals */
     result = cybsp_init();
-    CY_ASSERT(result == CY_RSLT_SUCCESS);
+    if (result != CY_RSLT_SUCCESS)
+    {
+        CY_ASSERT(0);
+    }
 
     __enable_irq();
 
     /* Initialize retarget-io to use the debug UART port */
     result = cy_retarget_io_init(CYBSP_DEBUG_UART_TX, CYBSP_DEBUG_UART_RX, CY_RETARGET_IO_BAUDRATE);
-    CY_ASSERT(result == CY_RSLT_SUCCESS);
+    if (result != CY_RSLT_SUCCESS)
+    {
+        CY_ASSERT(0);
+    }
 
     /* Initialize i2c for motion sensor */
     result = cyhal_i2c_init(&i2c, IMU_I2C_SDA, IMU_I2C_SCL, NULL);
-    CY_ASSERT(result == CY_RSLT_SUCCESS);
-    result = cyhal_i2c_configure(&i2c, &i2c_cfg);
-    CY_ASSERT(result == CY_RSLT_SUCCESS);
+    if (result != CY_RSLT_SUCCESS)
+    {
+        CY_ASSERT(0);
+    }
+        result = cyhal_i2c_configure(&i2c, &i2c_cfg);
+    if (result != CY_RSLT_SUCCESS)
+    {
+        CY_ASSERT(0);
+    }
 
     /* Initialize motion sensor */
     result = mtb_bmi160_init_i2c(&motion_sensor, &i2c, MTB_BMI160_DEFAULT_ADDRESS);
-    CY_ASSERT(result == CY_RSLT_SUCCESS);
-
+    if (result != CY_RSLT_SUCCESS)
+    {
+        CY_ASSERT(0);
+    }
+    
     for (;;)
     {
         /* Get the accel and gyro data and print the results to the UART */

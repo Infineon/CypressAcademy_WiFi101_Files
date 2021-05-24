@@ -42,14 +42,14 @@
 // Middleware headers
 #include "FreeRTOS.h"
 #include "queue.h"
-#include "iot_mqtt.h"
+#include "cy_mqtt_api.h"
 
 /*******************************************************************************
 * Macros
 ********************************************************************************/
 /* Task parameters for MQTT Client Task. */
 #define MQTT_CLIENT_TASK_PRIORITY       (2)
-#define MQTT_CLIENT_TASK_STACK_SIZE     (1024 * 3)
+#define MQTT_CLIENT_TASK_STACK_SIZE     (1024 * 2)
 
 // Modes that the thermostat can be in
 #define MODE_HEAT                   "Heating"
@@ -72,22 +72,20 @@
 /*******************************************************************************
 * Global Variables
 ********************************************************************************/
-/* Data-type of various MQTT operation results. */
+/* Commands for the MQTT Client Task. */
 typedef enum
 {
-    MQTT_SUBSCRIBE_SUCCESS,
-    MQTT_SUBSCRIBE_FAILURE,
-    MQTT_PUBLISH_SUCCESS,
-    MQTT_PUBLISH_FAILURE,
-    MQTT_DISCONNECT
-} mqtt_result_t;
+    HANDLE_MQTT_SUBSCRIBE_FAILURE,
+    HANDLE_MQTT_PUBLISH_FAILURE,
+    HANDLE_DISCONNECTION
+} mqtt_task_cmd_t;
 
 /*******************************************************************************
  * Extern variables
  ******************************************************************************/
 // Defined in mqtt_task.c
-extern IotMqttConnection_t mqttConnection;
-extern QueueHandle_t mqtt_status_q;
+extern cy_mqtt_t mqtt_connection;
+extern QueueHandle_t mqtt_task_q;
 
 /*******************************************************************************
 * Function Prototypes

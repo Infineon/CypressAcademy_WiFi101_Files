@@ -133,7 +133,7 @@ void http_client_task(void *arg){
     cy_http_client_t clientHandle;
 
     // Create the HTTP Client
-    result = cy_http_client_create(&credentials, &serverInfo, (void*)disconnect_callback, NULL, &clientHandle);
+    result = cy_http_client_create(&credentials, &serverInfo, disconnectCallback, NULL, &clientHandle);
     if(result != CY_RSLT_SUCCESS){
 		printf("HTTP Client Creation Failed!\n");
 		CY_ASSERT(0);
@@ -177,7 +177,7 @@ void http_client_task(void *arg){
 		header[0].value_len = strlen("keep-alive");
 
 		// Write Headers
-		result = cy_http_client_write_header(clientHandle, &request, &header, num_header);
+		result = cy_http_client_write_header(clientHandle, &request, header, num_header);
 		if(result != CY_RSLT_SUCCESS){
 			printf("HTTP Client Header Write Failed!\n");
 			CY_ASSERT(0);

@@ -58,8 +58,11 @@ int main(void){
     cy_rslt_t result;
     /* Initialize the device and board peripherals */
     result = cybsp_init();
-    CY_ASSERT(result == CY_RSLT_SUCCESS);
-    // Enable interrupts
+    if (result != CY_RSLT_SUCCESS)
+    {
+        CY_ASSERT(0);
+    }
+        // Enable interrupts
     __enable_irq();
 
     /* Initialize retarget-io to use the debug UART port. */
@@ -68,7 +71,11 @@ int main(void){
     /* Initialize the CY8CKIT_028_TFT board */
     /* This will initialize the TFT, Motion Sensor, Light Sensor and I2C for the motion sensor */
     result = cy8ckit_028_tft_init (NULL, NULL, NULL, NULL);
-
+    if (result != CY_RSLT_SUCCESS)
+    {
+        CY_ASSERT(0);
+    }
+    
     /* Initialize the emwin library */
 	GUI_Init();
 

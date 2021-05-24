@@ -33,7 +33,7 @@
 
 #include <whd_types.h>
 
-//mDNS Responder
+// Enable mDNS Responder
 #define LWIP_MDNS_RESPONDER 			(1)
 #define LWIP_NUM_NETIF_CLIENT_DATA 		(1)
 
@@ -84,7 +84,7 @@
 //
 #define LWIP_PROVIDE_ERRNO              (1)
 
-#ifndef __ICCARM__
+#if defined(__GNUC__) && !defined(__ARMCC_VERSION)
 //
 // Use the timeval from the GCC library, not the one
 // from LWIP
@@ -275,5 +275,7 @@
 #define LWIP_NETIF_STATUS_CALLBACK    (1)
 #define LWIP_NETIF_LINK_CALLBACK      (1)
 #define LWIP_NETIF_REMOVE_CALLBACK    (1)
+
+#define LWIP_CHKSUM_ALGORITHM         (3)
 
 extern void sys_check_core_locking() ;

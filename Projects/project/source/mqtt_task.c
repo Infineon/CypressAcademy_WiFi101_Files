@@ -47,6 +47,7 @@
 // Middleware Headers
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
 #include "GUI.h"
 #include "cy8ckit_028_tft.h"
 #include "cy_retarget_io.h"
@@ -66,9 +67,8 @@
 // Wi-Fi Headers
 #include "cy_wcm.h"
 #include "cy_lwip.h"
-#include "cy_iot_network_secured_socket.h"
-#include "iot_init.h"
-#include "iot_clock.h"
+#include "cy_mqtt_api.h"
+#include "clock.h"
 
 /******************************************************************************
 * Macros
@@ -76,7 +76,7 @@
 /* Queue length of a message queue that is used to communicate the status of 
  * various operations.
  */
-#define MQTT_STATUS_QUEUE_LENGTH         (1u)
+#define MQTT_TASK_QUEUE_LENGTH           (3u)
 
 /* Time in milliseconds to wait before creating the publisher task. */
 #define TASK_CREATION_DELAY_MS           (2000u)
@@ -84,43 +84,50 @@
 /* Flag Masks for tracking which cleanup functions must be called. */
 #define WCM_INITIALIZED                  (1lu << 0)
 #define WIFI_CONNECTED                   (1lu << 1)
-#define IOT_SDK_INITIALIZED              (1lu << 2)
-#define NETWORK_STACK_INITIALIZED        (1lu << 3)
-#define LIBS_INITIALIZED                 (1lu << 4)
-#define CONNECTION_ESTABLISHED           (1lu << 5)
+#define LIBS_INITIALIZED                 (1lu << 2)
+#define BUFFER_INITIALIZED               (1lu << 3)
+#define MQTT_INSTANCE_CREATED            (1lu << 4)
+#define MQTT_CONNECTION_SUCCESS          (1lu << 5)
+#define MQTT_MSG_RECEIVED                (1lu << 6)
 
 /* Macro to check if the result of an operation was successful and set the 
- * corresponding bit in the init_flag based on 'init_mask' parameter. When 
- * it has failed, print the error message and return EXIT_FAILURE to the 
+ * corresponding bit in the status_flag based on 'init_mask' parameter. When
+ * it has failed, print the error message and return the result to the
  * calling function.
  */
-#define CHECK_RESULT(result, init_mask, error_message...)   \
-                     do                                     \
-                     {                                      \
-                         if ((int)result == EXIT_SUCCESS)   \
-                         {                                  \
-                             init_flag |= init_mask;        \
-                         }                                  \
-                         else                               \
-                         {                                  \
-                             printf(error_message);         \
-                             return EXIT_FAILURE;           \
-                         }                                  \
+#define CHECK_RESULT(result, init_mask, error_message...)      \
+                     do                                        \
+                     {                                         \
+                         if ((int)result == CY_RSLT_SUCCESS)   \
+                         {                                     \
+                             status_flag |= init_mask;         \
+                         }                                     \
+                         else                                  \
+                         {                                     \
+                             printf(error_message);            \
+                             return result;                    \
+                         }                                     \
                      } while(0)
 
 /******************************************************************************
 * Global Variables
 *******************************************************************************/
 /* MQTT connection handle. */
-IotMqttConnection_t mqttConnection = IOT_MQTT_CONNECTION_INITIALIZER;
+cy_mqtt_t mqtt_connection;
 
 /* Queue handle used to communicate results of various operations - MQTT 
- * Publish, MQTT Subscribe, and MQTT connection between tasks and callbacks.
+ * Publish, MQTT Subscribe, MQTT connection, and Wi-Fi connection between tasks
+ * and callbacks.
  */
-QueueHandle_t mqtt_status_q;
+QueueHandle_t mqtt_task_q;
 
 /* Flag to denote initialization status of various operations. */
-uint32_t init_flag;
+uint32_t status_flag;
+
+/* Pointer to the network buffer needed by the MQTT library for MQTT send and
+ * receive operations.
+ */
+uint8_t *mqtt_network_buffer = NULL;
 
 // Defined in main.c
 extern bool isConnected;
@@ -129,11 +136,12 @@ extern SemaphoreHandle_t isConnectedSemaphore;
 /******************************************************************************
 * Function Prototypes
 *******************************************************************************/
-static int wifi_connect(void);
-static int mqtt_connect(void);
-static int mqtt_get_unique_client_identifier(char *mqtt_client_identifier);
-static void mqtt_disconnect_callback(void *pCallbackContext, IotMqttCallbackParam_t *pCallbackParam);
+static cy_rslt_t wifi_connect(void);
+static cy_rslt_t mqtt_init(void);
+static cy_rslt_t mqtt_connect(void);
+void mqtt_event_callback(cy_mqtt_t mqtt_handle, cy_mqtt_event_t event, void *user_data);
 static void cleanup(void);
+static cy_rslt_t mqtt_get_unique_client_identifier(char *mqtt_client_identifier);
 
 /******************************************************************************
  * Function Name: mqtt_client_task
@@ -141,7 +149,8 @@ static void cleanup(void);
  * Summary:
  *  Task for handling initialization & connection of Wi-Fi and the MQTT client.
  *  The task also creates and manages the subscriber and publisher tasks upon 
- *  successful MQTT connection.
+ *  successful MQTT connection. The task also handles the WiFi and MQTT
+ *  connections by initiating reconnection on the event of disconnections.
  *
  * Parameters:
  *  void *pvParameters : Task parameter defined during task creation (unused)
@@ -151,30 +160,54 @@ static void cleanup(void);
  *
  ******************************************************************************/
 void mqtt_client_task(void *pvParameters){
-    /* Structure that stores the data received over MQTT status queue from 
-     * other tasks and callbacks.
-     */
-    mqtt_result_t mqtt_status;
+
+	/* Structures that store the data to be sent/received to/from various
+	 * message queues.
+	 */
+	mqtt_task_cmd_t mqtt_status;
+
+	/* Configure the Wi-Fi interface as a Wi-Fi STA (i.e. Client). */
+	cy_wcm_config_t config = {.interface = CY_WCM_INTERFACE_TYPE_STA};
 
     /* To avoid compiler warnings */
     (void)pvParameters;
 
-    /* Create a message queue to communicate MQTT operation results 
-     * between various tasks and callbacks.
-     */
-    mqtt_status_q = xQueueCreate(MQTT_STATUS_QUEUE_LENGTH, sizeof(mqtt_result_t));
+    /* Create a message queue to communicate with other tasks and callbacks. */
+	mqtt_task_q = xQueueCreate(MQTT_TASK_QUEUE_LENGTH, sizeof(mqtt_task_cmd_t));
 
-    /* Initialize the Wi-Fi STA, connect to the Wi-Fi AP, set up the MQTT 
-     * client, and connect to the MQTT broker. Jump to the cleanup block if 
-     * any of the operations fails.
-     */
-    xSemaphoreTake(isConnectedSemaphore, portMAX_DELAY);
-    if ((wifi_connect() != EXIT_SUCCESS) || (mqtt_connect() != EXIT_SUCCESS)){
-    	isConnected = false;
-    }
-    else{
-    	isConnected = true;
-    }
+	// Take the connection semaphore
+	xSemaphoreTake(isConnectedSemaphore, portMAX_DELAY);
+
+	/* Initialize the Wi-Fi Connection Manager and jump to the cleanup block
+	 * upon failure.
+	 */
+	if (CY_RSLT_SUCCESS != cy_wcm_init(&config)){
+		printf("\nWi-Fi Connection Manager initialization failed!\n");
+		goto exit_cleanup;
+	}
+
+	/* Set the appropriate bit in the status_flag to denote successful
+	 * WCM initialization.
+	 */
+	status_flag |= WCM_INITIALIZED;
+	printf("\nWi-Fi Connection Manager initialized.\n");
+
+	/* Initiate connection to the Wi-Fi AP and cleanup if the operation fails. */
+	if (CY_RSLT_SUCCESS != wifi_connect()){
+		goto exit_cleanup;
+	}
+
+	/* Set-up the MQTT client and connect to the MQTT broker. Jump to the
+	 * cleanup block if any of the operations fail.
+	 */
+	if ( (CY_RSLT_SUCCESS != mqtt_init()) || (CY_RSLT_SUCCESS != mqtt_connect()) ){
+		isConnected = false;
+		goto exit_cleanup;
+
+	}
+	else{
+		isConnected = true;
+	}
 
     // Only start subscriber and publisher task if we are connected to wifi and broker
     if(isConnected){
@@ -193,6 +226,7 @@ void mqtt_client_task(void *pvParameters){
 			goto exit_cleanup;
 		}
     }
+    // Give the connection semaphore
     xSemaphoreGive(isConnectedSemaphore);
 
     /* Create the potentiometer task.*/
@@ -217,21 +251,17 @@ void mqtt_client_task(void *pvParameters){
     	if(isConnected){
 
 			/* Wait for results of MQTT operations from other tasks and callbacks. */
-			if (pdTRUE == xQueueReceive(mqtt_status_q, &mqtt_status, portMAX_DELAY)){
+			if(pdTRUE == xQueueReceive(mqtt_task_q, &mqtt_status, portMAX_DELAY)){
 				switch(mqtt_status){
-					case MQTT_PUBLISH_FAILURE:
-					{
-						/* Unsubscribe from the topic before cleanup. */
-						mqtt_unsubscribe();
-						isConnected = false;
-						break;
-					}
-					case MQTT_SUBSCRIBE_FAILURE:
-					case MQTT_DISCONNECT:
+					case HANDLE_MQTT_PUBLISH_FAILURE:
+					case HANDLE_MQTT_SUBSCRIBE_FAILURE:
+					case HANDLE_DISCONNECTION:
 					{
 						/* Delete the subscriber and publisher tasks and go to the
 						 * cleanup label as MQTT subscribe/publish has failed.
 						 */
+						cy_mqtt_disconnect(mqtt_connection);
+						printf("Terminating the publisher and subscriber tasks...\n\n");
 						if (subscriber_task_handle != NULL){
 							vTaskDelete(subscriber_task_handle);
 						}
@@ -240,6 +270,7 @@ void mqtt_client_task(void *pvParameters){
 						}
 						isConnected = false;
 						goto exit_cleanup;
+						break;
 					}
 					default:
 						break;
@@ -249,10 +280,13 @@ void mqtt_client_task(void *pvParameters){
     	vTaskDelay(100);
     }
 
-    /* Cleanup section for various operations. */
-    exit_cleanup:
-    cleanup();
-    vTaskDelete( NULL );
+    /* Cleanup section: Delete subscriber and publisher tasks and perform
+	 * cleanup for various operations based on the status_flag.
+	 */
+	exit_cleanup:
+	cleanup();
+	printf("\nCleanup Done\nTerminating the MQTT task...\n\n");
+	vTaskDelete(NULL);
 }
 
 /******************************************************************************
@@ -270,162 +304,245 @@ void mqtt_client_task(void *pvParameters){
  *        else EXIT_FAILURE.
  *
  ******************************************************************************/
-static int wifi_connect(void){
-    cy_rslt_t result;
-    cy_wcm_connect_params_t connect_param;
-    cy_wcm_ip_address_t ip_address;
-    uint32_t retry_count;
-    /* Configure the interface as a Wi-Fi STA (i.e. Client). */
-    cy_wcm_config_t config = {.interface = CY_WCM_INTERFACE_TYPE_STA};
+static cy_rslt_t wifi_connect(void){
+	cy_rslt_t result = CY_RSLT_SUCCESS;
+	cy_wcm_connect_params_t connect_param;
+	cy_wcm_ip_address_t ip_address;
 
-    /* Initialize the Wi-Fi Connection Manager and return if the operation fails. */
-    result = cy_wcm_init(&config);
-    CHECK_RESULT(result, WCM_INITIALIZED, "\nWi-Fi Connection Manager initialization failed!\n");
-    printf("\nWi-Fi Connection Manager initialized.\n");
+	/* Check if Wi-Fi connection is already established. */
+	if (cy_wcm_is_connected_to_ap() == 0){
+		/* Configure the connection parameters for the Wi-Fi interface. */
+		memset(&connect_param, 0, sizeof(cy_wcm_connect_params_t));
+		memcpy(connect_param.ap_credentials.SSID, WIFI_SSID, sizeof(WIFI_SSID));
+		memcpy(connect_param.ap_credentials.password, WIFI_PASSWORD, sizeof(WIFI_PASSWORD));
+		connect_param.ap_credentials.security = WIFI_SECURITY;
 
-    /* Configure the connection parameters for the Wi-Fi interface. */
-    memset(&connect_param, 0, sizeof(cy_wcm_connect_params_t));
-    memcpy(connect_param.ap_credentials.SSID, WIFI_SSID, sizeof(WIFI_SSID));
-    memcpy(connect_param.ap_credentials.password, WIFI_PASSWORD, sizeof(WIFI_PASSWORD));
-    connect_param.ap_credentials.security = WIFI_SECURITY;
+		printf("\nConnecting to Wi-Fi AP '%s'\n\n", connect_param.ap_credentials.SSID);
 
-    /* Connect to the Wi-Fi AP. */
-    for (retry_count = 0; retry_count < MAX_WIFI_CONN_RETRIES; retry_count++){
-        printf("Connecting to Wi-Fi AP '%s'\n", connect_param.ap_credentials.SSID);
-        result = cy_wcm_connect_ap(&connect_param, &ip_address);
+		/* Connect to the Wi-Fi AP. */
+		for (uint32_t retry_count = 0; retry_count < MAX_WIFI_CONN_RETRIES; retry_count++){
+			result = cy_wcm_connect_ap(&connect_param, &ip_address);
 
-        if (result == CY_RSLT_SUCCESS){
-            printf("Successfully connected to Wi-Fi network '%s'.\n",
-                    connect_param.ap_credentials.SSID);
+			if (result == CY_RSLT_SUCCESS){
+				printf("\nSuccessfully connected to Wi-Fi network '%s'.\n", connect_param.ap_credentials.SSID);
 
-            /* Set the appropriate bit in the init_flag to denote successful
-             * Wi-Fi connection, print the assigned IP address.
-             */
-            init_flag |= WIFI_CONNECTED;
-            if (ip_address.version == CY_WCM_IP_VER_V4){
-                printf("IPv4 Address Assigned: %s\n\n", ip4addr_ntoa((const ip4_addr_t *) &ip_address.ip.v4));
-            }
-            else if (ip_address.version == CY_WCM_IP_VER_V6){
-                printf("IPv6 Address Assigned: %s\n\n", ip6addr_ntoa((const ip6_addr_t *) &ip_address.ip.v6));
-            }
-            return EXIT_SUCCESS;
-        }
+				/* Set the appropriate bit in the status_flag to denote
+				 * successful Wi-Fi connection, print the assigned IP address.
+				 */
+				status_flag |= WIFI_CONNECTED;
+				if (ip_address.version == CY_WCM_IP_VER_V4){
+					printf("IPv4 Address Assigned: %s\n\n", ip4addr_ntoa((const ip4_addr_t *) &ip_address.ip.v4));
+				}
+				else if (ip_address.version == CY_WCM_IP_VER_V6){
+					printf("IPv6 Address Assigned: %s\n\n", ip6addr_ntoa((const ip6_addr_t *) &ip_address.ip.v6));
+				}
+				return result;
+			}
 
-        printf("Connection to Wi-Fi network failed with error code 0x%0X. "
-                "Retrying in %d ms...\n", (int)result, WIFI_CONN_RETRY_INTERVAL_MS);
-        vTaskDelay(pdMS_TO_TICKS(WIFI_CONN_RETRY_INTERVAL_MS));
+			printf("Connection to Wi-Fi network failed with error code 0x%0X. Retrying in %d ms. Retries left: %d\n",
+			(int)result, WIFI_CONN_RETRY_INTERVAL_MS, (int)(MAX_WIFI_CONN_RETRIES - retry_count - 1));
+			vTaskDelay(pdMS_TO_TICKS(WIFI_CONN_RETRY_INTERVAL_MS));
+		}
+
+		printf("\nExceeded maximum Wi-Fi connection attempts!\n");
+		printf("Wi-Fi connection failed after retrying for %d mins\n\n",
+		(int)(WIFI_CONN_RETRY_INTERVAL_MS * MAX_WIFI_CONN_RETRIES) / 60000u);
+	}
+	return result;
+}
+
+/******************************************************************************
+ * Function Name: mqtt_init
+ ******************************************************************************
+ * Summary:
+ *  Function that initializes the MQTT library and creates an instance for the
+ *  MQTT client. The network buffer needed by the MQTT library for MQTT send
+ *  send and receive operations is also allocated by this function.
+ *
+ * Parameters:
+ *  void
+ *
+ * Return:
+ *  cy_rslt_t : CY_RSLT_SUCCESS on a successful initialization, else an error
+ *              code indicating the failure.
+ *
+ ******************************************************************************/
+static cy_rslt_t mqtt_init(void){
+    /* Variable to indicate status of various operations. */
+    cy_rslt_t result = CY_RSLT_SUCCESS;
+
+    /* Initialize the MQTT library. */
+    result = cy_mqtt_init();
+    CHECK_RESULT(result, LIBS_INITIALIZED, "MQTT library initialization failed!\n\n");
+
+    /* Allocate buffer for MQTT send and receive operations. */
+    mqtt_network_buffer = (uint8_t *) pvPortMalloc(sizeof(uint8_t) * MQTT_NETWORK_BUFFER_SIZE);
+    if(mqtt_network_buffer == NULL){
+        result = ~CY_RSLT_SUCCESS;
     }
+    CHECK_RESULT(result, BUFFER_INITIALIZED, "Network Buffer allocation failed!\n\n");
 
-    printf("Exceeded maximum Wi-Fi connection attempts\n\n");
-    return EXIT_FAILURE;
+    /* Create the MQTT client instance. */
+    result = cy_mqtt_create(mqtt_network_buffer, MQTT_NETWORK_BUFFER_SIZE,
+                            security_info, &broker_info,
+                            (cy_mqtt_callback_t)mqtt_event_callback, NULL,
+                            &mqtt_connection);
+    CHECK_RESULT(result, MQTT_INSTANCE_CREATED, "MQTT instance creation failed!\n\n");
+    printf("MQTT library initialization successful.\n\n");
+
+    return result;
 }
 
 /******************************************************************************
  * Function Name: mqtt_connect
  ******************************************************************************
  * Summary:
- *  Function that initializes the IoT SDK, network stack, and the MQTT client.
- *  Upon successful initialization the MQTT connect operation is performed.
+ *  Function that initiates MQTT connect operation. The connection is retried
+ *  a maximum of 'MAX_MQTT_CONN_RETRIES' times with interval of
+ *  'MQTT_CONN_RETRY_INTERVAL_MS' milliseconds.
  *
  * Parameters:
  *  void
  *
  * Return:
- *  int : EXIT_SUCCESS on successful completion of MQTT connection,
- *        else EXIT_FAILURE.
+ *  cy_rslt_t : CY_RSLT_SUCCESS upon a successful MQTT connection, else an
+ *              error code indicating the failure.
  *
  ******************************************************************************/
-static int mqtt_connect(void){
+static cy_rslt_t mqtt_connect(void){
+
     /* Variable to indicate status of various operations. */
-    int result = EXIT_SUCCESS;
+    cy_rslt_t result = CY_RSLT_SUCCESS;
 
     /* MQTT client identifier string. */
-    char mqtt_client_identifier[MQTT_CLIENT_IDENTIFIER_MAX_LEN] = {0};
+    char mqtt_client_identifier[(MQTT_CLIENT_IDENTIFIER_MAX_LEN + 1)] = MQTT_CLIENT_IDENTIFIER;
 
-    if (!IotSdk_Init()){
-        result = EXIT_FAILURE;
+    /* Configure the user credentials as a part of MQTT Connect packet */
+    if (strlen(MQTT_USERNAME) > 0){
+        connection_info.username = MQTT_USERNAME;
+        connection_info.password = MQTT_PASSWORD;
+        connection_info.username_len = sizeof(MQTT_USERNAME) - 1;
+        connection_info.password_len = sizeof(MQTT_PASSWORD) - 1;
     }
-    CHECK_RESULT(result, IOT_SDK_INITIALIZED, "IoT SDK initialization failed!\n");
-    printf("IoT SDK initialized successfully.\n");
 
-    /* Initialize the Cypress Secure Sockets library. */
-    result = IotNetworkSecureSockets_Init();
-    CHECK_RESULT(result, NETWORK_STACK_INITIALIZED, "Network stack initialization failed!\n");
-    printf("Network stack initialized successfully.\n");
-
-    /* Initialize the MQTT library. */
-    result = IotMqtt_Init();
-    CHECK_RESULT(result, LIBS_INITIALIZED, "MQTT library initialization failed!\n\n");
-    printf("MQTT library initialization successful.\n\n");
-
-    /* Configure the user credentials for the AWS IoT Enhanced Custom 
-     * Authentication.
+    /* Generate a unique client identifier with 'MQTT_CLIENT_IDENTIFIER' string
+     * as a prefix.
      */
-    if ((connectionInfo.awsIotMqttMode) && (strlen(MQTT_USERNAME) > 0)){
-        connectionInfo.pUserName = MQTT_USERNAME;
-        connectionInfo.pPassword = MQTT_PASSWORD;
-        connectionInfo.userNameLength = sizeof(MQTT_USERNAME);
-        connectionInfo.passwordLength = sizeof(MQTT_PASSWORD);
-    }
-
-    /* Configure the network interface and callback function for disconnection. */
-    networkInfo.pNetworkInterface = IOT_NETWORK_INTERFACE_CY_SECURE_SOCKETS;
-    networkInfo.disconnectCallback.function = mqtt_disconnect_callback;
-
-    /* Every active MQTT connection must have a unique client identifier. */
     result = mqtt_get_unique_client_identifier(mqtt_client_identifier);
     CHECK_RESULT(result, 0, "Failed to generate unique client identifier for the MQTT client!\n");
 
     /* Set the client identifier buffer and length. */
-    connectionInfo.pClientIdentifier = mqtt_client_identifier;
-    connectionInfo.clientIdentifierLength = strlen(mqtt_client_identifier);
+    connection_info.client_id = mqtt_client_identifier;
+    connection_info.client_id_len = strlen(mqtt_client_identifier);
 
-    printf("MQTT client '%.*s' connecting to MQTT broker '%s'...\n",
-           connectionInfo.clientIdentifierLength,
-           connectionInfo.pClientIdentifier,
-           networkInfo.u.setup.pNetworkServerInfo->pHostName);
+    printf("\nMQTT client '%.*s' connecting to MQTT broker '%.*s'...\n\n",
+           connection_info.client_id_len,
+           connection_info.client_id,
+           broker_info.hostname_len,
+           broker_info.hostname);
 
-    /* Establish the MQTT connection. */
-    result = IotMqtt_Connect(&networkInfo, &connectionInfo, MQTT_TIMEOUT_MS, &mqttConnection);
-    CHECK_RESULT(result, CONNECTION_ESTABLISHED, "MQTT connection failed with error '%s'!\n\n", 
-                 IotMqtt_strerror((IotMqttError_t) result));
-    printf("MQTT connection successful.\n\n");
-    return EXIT_SUCCESS;
+    for (uint32_t retry_count = 0; retry_count < MAX_MQTT_CONN_RETRIES; retry_count++){
+        if (cy_wcm_is_connected_to_ap() == 0){
+            printf("Unexpectedly disconnected from Wi-Fi network! Initiating Wi-Fi reconnection...\n");
+            status_flag &= ~(WIFI_CONNECTED);
+
+            /* Initiate Wi-Fi reconnection. */
+            result = wifi_connect();
+            if (CY_RSLT_SUCCESS != result)
+            {
+                return result;
+            }
+        }
+
+        /* Establish the MQTT connection. */
+        result = cy_mqtt_connect(mqtt_connection, &connection_info);
+
+        if (result == CY_RSLT_SUCCESS){
+            printf("MQTT connection successful.\n\n");
+
+            /* Set the appropriate bit in the status_flag to denote successful
+             * MQTT connection, and return the result to the calling function.
+             */
+            status_flag |= MQTT_CONNECTION_SUCCESS;
+            return result;
+        }
+
+        printf("MQTT connection failed with error code 0x%0X. Retrying in %d ms. Retries left: %d\n",
+               (int)result, MQTT_CONN_RETRY_INTERVAL_MS, (int)(MAX_MQTT_CONN_RETRIES - retry_count - 1));
+        vTaskDelay(pdMS_TO_TICKS(MQTT_CONN_RETRY_INTERVAL_MS));
+    }
+
+    printf("\nExceeded maximum MQTT connection attempts\n");
+    printf("MQTT connection failed after retrying for %d mins\n\n",
+           (int)(MQTT_CONN_RETRY_INTERVAL_MS * MAX_MQTT_CONN_RETRIES) / 60000u);
+    return result;
 }
 
 /******************************************************************************
- * Function Name: mqtt_disconnect_callback
+ * Function Name: mqtt_event_callback
  ******************************************************************************
  * Summary:
- *  Callback invoked when the MQTT connection is disconnected. The function 
- *  informs the MQTT client task about the MQTT client disconnection using a
- *  message queue only if the disconnection was unexpected.
+ *  Callback invoked by the MQTT library for events like MQTT disconnection,
+ *  incoming MQTT subscription messages from the MQTT broker.
+ *    1. In case of MQTT disconnection, the MQTT client task is communicated
+ *       about the disconnection using a message queue.
+ *    2. When an MQTT subscription message is received, the subscriber callback
+ *       function implemented in subscriber_task.c is invoked to handle the
+ *       incoming MQTT message.
  *
  * Parameters:
- *  void *pCallbackContext : Information about expected disconnect reason (unused)
- *  IotMqttCallbackParam_t * pCallbackParam : Actual disconnection information 
+ *  cy_mqtt_t mqtt_handle : MQTT handle corresponding to the MQTT event (unused)
+ *  cy_mqtt_event_t event : MQTT event information
+ *  void *user_data : User data pointer passed during cy_mqtt_create() (unused)
  *
  * Return:
  *  void
  *
  ******************************************************************************/
-static void mqtt_disconnect_callback(void *pCallbackContext, IotMqttCallbackParam_t *pCallbackParam){
-    /* Structure that stores the data that will be sent to the MQTT client task
-     * using a message queue.
-     */
-    mqtt_result_t mqtt_connection_status = MQTT_DISCONNECT;
+void mqtt_event_callback(cy_mqtt_t mqtt_handle, cy_mqtt_event_t event, void *user_data){
+    cy_mqtt_publish_info_t *received_msg;
+    mqtt_task_cmd_t mqtt_task_cmd;
 
-    /* To avoid compiler warnings */
-    (void)pCallbackContext;
-    (void)pCallbackParam;
+    (void) mqtt_handle;
+    (void) user_data;
 
-    /* Inform the MQTT client task about the disconnection except when the MQTT 
-     * client has invoked the MQTT disconnect function.
-     */
-    if (pCallbackParam->u.disconnectReason != IOT_MQTT_DISCONNECT_CALLED){
-        printf("MQTT client disconnected unexpectedly!\n");
-        
-        xQueueOverwrite(mqtt_status_q, &mqtt_connection_status);
+    switch(event.type){
+        case CY_MQTT_EVENT_TYPE_DISCONNECT:
+        {
+            /* Clear the status flag bit to indicate MQTT disconnection. */
+            status_flag &= ~(MQTT_CONNECTION_SUCCESS);
+
+            /* MQTT connection with the MQTT broker is broken as the client
+             * is unable to communicate with the broker. Set the appropriate
+             * command to be sent to the MQTT task.
+             */
+            printf("\nUnexpectedly disconnected from MQTT broker!\n");
+            mqtt_task_cmd = HANDLE_DISCONNECTION;
+
+            /* Send the message to the MQTT client task to handle the
+             * disconnection.
+             */
+            xQueueSend(mqtt_task_q, &mqtt_task_cmd, portMAX_DELAY);
+            break;
+        }
+
+        case CY_MQTT_EVENT_TYPE_SUBSCRIPTION_MESSAGE_RECEIVE:
+        {
+            status_flag |= MQTT_MSG_RECEIVED;
+
+            /* Incoming MQTT message has been received. Send this message to
+             * the subscriber callback function to handle it.
+             */
+            received_msg = &(event.data.pub_msg.received_message);
+            mqtt_subscription_callback(received_msg);
+            break;
+        }
+        default :
+        {
+            /* Unknown MQTT event */
+            printf("\nUnknown Event received from MQTT callback!\n");
+            break;
+        }
     }
 }
 
@@ -434,27 +551,27 @@ static void mqtt_disconnect_callback(void *pCallbackContext, IotMqttCallbackPara
  ******************************************************************************
  * Summary:
  *  Function that generates unique client identifier for the MQTT client by
- *  appending a timestamp to a common prefix (CLIENT_IDENTIFIER_PREFIX).
+ *  appending a timestamp to a common prefix 'MQTT_CLIENT_IDENTIFIER'.
  *
  * Parameters:
  *  char *mqtt_client_identifier : Pointer to the string that stores the 
  *                                 generated unique identifier
  *
  * Return:
- *  int : EXIT_SUCCESS on successful generation of the client identifier,
- *        else EXIT_FAILURE
+ *  cy_rslt_t : CY_RSLT_SUCCESS on successful generation of the client
+ *              identifier, else a non-zero value indicating failure.
  *
  ******************************************************************************/
-static int mqtt_get_unique_client_identifier(char *mqtt_client_identifier){
-    int status = EXIT_SUCCESS;
+static cy_rslt_t mqtt_get_unique_client_identifier(char *mqtt_client_identifier){
+    cy_rslt_t status = CY_RSLT_SUCCESS;
 
     /* Check for errors from snprintf. */
     if (0 > snprintf(mqtt_client_identifier,
-                     MQTT_CLIENT_IDENTIFIER_MAX_LEN,
-                     MQTT_CLIENT_IDENTIFIER_PREFIX "%lu",
-                     (long unsigned int)IotClock_GetTimeMs()))
+                     (MQTT_CLIENT_IDENTIFIER_MAX_LEN + 1),
+                     MQTT_CLIENT_IDENTIFIER "%lu",
+                     (long unsigned int)Clock_GetTimeMs()))
     {
-        status = EXIT_FAILURE;
+        status = ~CY_RSLT_SUCCESS;
     }
 
     return status;
@@ -464,8 +581,8 @@ static int mqtt_get_unique_client_identifier(char *mqtt_client_identifier){
  * Function Name: cleanup
  ******************************************************************************
  * Summary:
- *  Function that invokes various deinit and cleanup functions for the 
- *  appropriate operations based on the init_flag.
+ *  Function that invokes the deinit and cleanup functions for various
+ *  operations based on the status_flag.
  *
  * Parameters:
  *  void
@@ -476,30 +593,37 @@ static int mqtt_get_unique_client_identifier(char *mqtt_client_identifier){
  ******************************************************************************/
 static void cleanup(void){
     /* Disconnect the MQTT connection if it was established. */
-    if (init_flag & CONNECTION_ESTABLISHED){
-        printf("Disconnecting from the MQTT Server...\n");
-        IotMqtt_Disconnect(mqttConnection, 0);
-    }    
-    /* Clean up libraries if they were initialized. */
-    if (init_flag & LIBS_INITIALIZED){
-        IotMqtt_Cleanup();
+    if (status_flag & MQTT_CONNECTION_SUCCESS)
+    {
+        printf("Disconnecting from the MQTT Broker...\n");
+        cy_mqtt_disconnect(mqtt_connection);
     }
-    /* Clean up the network stack if it was initialized. */
-    if (init_flag & NETWORK_STACK_INITIALIZED){
-        IotNetworkSecureSockets_Cleanup();
+    /* Delete the MQTT instance if it was created. */
+    if (status_flag & MQTT_INSTANCE_CREATED)
+    {
+        cy_mqtt_delete(mqtt_connection);
     }
-    /* Clean up the IoT SDK. */
-    if (init_flag & IOT_SDK_INITIALIZED){
-        IotSdk_Cleanup();
+    /* Deallocate the network buffer. */
+    if (status_flag & BUFFER_INITIALIZED)
+    {
+        vPortFree((void *) mqtt_network_buffer);
+    }
+    /* Deinit the MQTT library. */
+    if (status_flag & LIBS_INITIALIZED)
+    {
+        cy_mqtt_deinit();
     }
     /* Disconnect from Wi-Fi AP. */
-    if (init_flag & WIFI_CONNECTED){
-        if (cy_wcm_disconnect_ap() == CY_RSLT_SUCCESS){
+    if (status_flag & WIFI_CONNECTED)
+    {
+        if (cy_wcm_disconnect_ap() == CY_RSLT_SUCCESS)
+        {
             printf("Disconnected from the Wi-Fi AP!\n");
         }
     }
     /* De-initialize the Wi-Fi Connection Manager. */
-    if (init_flag & WCM_INITIALIZED){
+    if (status_flag & WCM_INITIALIZED)
+    {
         cy_wcm_deinit();
     }
 }

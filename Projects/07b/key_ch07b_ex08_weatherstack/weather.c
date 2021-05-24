@@ -134,7 +134,7 @@ void weather_task( void* arg )
 		header[0].value = SERVERHOSTNAME;
 		header[0].value_len = strlen(SERVERHOSTNAME);
 		// Write Header
-		result = cy_http_client_write_header(clientHandle, &request, &header, num_header);
+		result = cy_http_client_write_header(clientHandle, &request, header, num_header);
 		if(result != CY_RSLT_SUCCESS){
 			printf("HTTP Client Header Write Failed!\n");
 			CY_ASSERT(0);
@@ -218,55 +218,61 @@ static void display_update( const char* http_data, int num_bytes )
 	/* Extract pointer to the current weather */
 	current  = cJSON_GetObjectItemCaseSensitive( weather_data, "current" );
 
-	/*
-	Extract the current weather from array of conditions: "weather_descriptions" : [ "cloudy" ]
-	*/
-	item = cJSON_GetObjectItemCaseSensitive( current, "weather_descriptions" );
-	item = cJSON_GetArrayItem( item, 0 );					// Use the zeroth element of the array
-	CY_ASSERT( cJSON_IsString( item ) );
+	// If current is null then the http message must not have contained weather info
+	if(current != NULL){
+		/*
+		Extract the current weather from array of conditions: "weather_descriptions" : [ "cloudy" ]
+		*/
+		item = cJSON_GetObjectItemCaseSensitive( current, "weather_descriptions" );
+		item = cJSON_GetArrayItem( item, 0 );					// Use the zeroth element of the array
+		CY_ASSERT( cJSON_IsString( item ) );
 
-	printf( "Conditions: %s\n", item->valuestring );
-	#ifdef TFT_SUPPORTED
-	GUI_DispStringAt( item->valuestring, TFT_LEFT_ALIGNED, TFT_ROW_WEATHER );
-	#endif
+		printf( "Conditions: %s\n", item->valuestring );
+		#ifdef TFT_SUPPORTED
+		GUI_DispStringAt( item->valuestring, TFT_LEFT_ALIGNED, TFT_ROW_WEATHER );
+		#endif
 
-	/*
-	Extract the wind direction (wind_dir)
-	*/
-	item = cJSON_GetObjectItemCaseSensitive( current, "wind_dir" );
-	CY_ASSERT( cJSON_IsString( item ) );
+		/*
+		Extract the wind direction (wind_dir)
+		*/
+		item = cJSON_GetObjectItemCaseSensitive( current, "wind_dir" );
+		CY_ASSERT( cJSON_IsString( item ) );
+
+		printf( "Wind:\t\t%s\n", item->valuestring );
+		#ifdef TFT_SUPPORTED
+		GUI_DispStringAt( "Wind:  ", TFT_LEFT_ALIGNED, TFT_ROW_WIND );
+		GUI_DispString( item->valuestring );
+		#endif
+
+		/*
+		Extract the rain (precip)
+		*/
+		item = cJSON_GetObjectItemCaseSensitive( current, "precip" );
+		CY_ASSERT( cJSON_IsNumber( item ) );
+
+		printf( "Rain:\t\t%d %%\n", item->valueint );
+		#ifdef TFT_SUPPORTED
+		GUI_DispStringAt( "Rain:   ", TFT_LEFT_ALIGNED, TFT_ROW_RAIN );
+		GUI_DispDecMin( item->valueint );
+		GUI_DispString( " %" );
+		#endif
+
+		/*
+		Extract the temperature
+		*/
+		item = cJSON_GetObjectItemCaseSensitive( current, "temperature" );
+		CY_ASSERT( cJSON_IsNumber( item ) );
 	
-	printf( "Wind:\t\t%s\n", item->valuestring );
-	#ifdef TFT_SUPPORTED
-	GUI_DispStringAt( "Wind:  ", TFT_LEFT_ALIGNED, TFT_ROW_WIND );
-	GUI_DispString( item->valuestring );
-	#endif
-
-	/*
-	Extract the rain (precip)
-	*/
-	item = cJSON_GetObjectItemCaseSensitive( current, "precip" );
-	CY_ASSERT( cJSON_IsNumber( item ) );
-
-	printf( "Rain:\t\t%d %%\n", item->valueint );	
-	#ifdef TFT_SUPPORTED
-	GUI_DispStringAt( "Rain:   ", TFT_LEFT_ALIGNED, TFT_ROW_RAIN );
-	GUI_DispDecMin( item->valueint );
-	GUI_DispString( " %" );
-	#endif
-
-	/*
-	Extract the temperature
-	*/
-	item = cJSON_GetObjectItemCaseSensitive( current, "temperature" );
-	CY_ASSERT( cJSON_IsNumber( item ) );
-
-	printf( "Temp:\t\t%d C\n", item->valueint );
-	#ifdef TFT_SUPPORTED
-	GUI_DispStringAt( "Temp: ", TFT_LEFT_ALIGNED, TFT_ROW_TEMP );
-	GUI_DispDecMin( item->valueint );
-	GUI_DispString( " C" );
-	#endif
+		printf( "Temp:\t\t%d C\n", item->valueint );
+		#ifdef TFT_SUPPORTED
+		GUI_DispStringAt( "Temp: ", TFT_LEFT_ALIGNED, TFT_ROW_TEMP );
+		GUI_DispDecMin( item->valueint );
+		GUI_DispString( " C" );
+		#endif
+	}
+	else{
+		printf("No weather data received in response from server!\n");
+	}
 
 	cJSON_Delete( weather_data );
 }

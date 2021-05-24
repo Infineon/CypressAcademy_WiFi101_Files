@@ -51,7 +51,8 @@ char  temperatureString[10];
 
 /* This function is called during the parsing of the JSON text.  It is called when a
    complete item is parsed. */
-cy_rslt_t jsonCallback(cy_JSON_object_t *obj_p){
+cy_rslt_t jsonCallback(cy_JSON_object_t *obj_p, void *arg)
+{
     /* This conditional ensures that the path is state: reported: temperature and the value is a number */
     if( (obj_p->parent_object != NULL) &&
         (obj_p->parent_object->parent_object != NULL) &&
@@ -72,12 +73,15 @@ int main(void){
     cy_rslt_t result;
     /* Initialize the device and board peripherals */
     result = cybsp_init();
-    CY_ASSERT(result == CY_RSLT_SUCCESS);
+    if (result != CY_RSLT_SUCCESS)
+    {
+        CY_ASSERT(0);
+    }
 
     /* Initialize retarget-io to use the debug UART port. */
 	cy_retarget_io_init(CYBSP_DEBUG_UART_TX, CYBSP_DEBUG_UART_RX, CY_RETARGET_IO_BAUDRATE);
 
-	/* Enble interrupts */
+	/* Enable interrupts */
     __enable_irq();
 
     // Hard Coded json string

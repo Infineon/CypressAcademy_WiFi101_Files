@@ -35,19 +35,28 @@
 
 #define MEM_ALIGNMENT                   (4)
 
+#define LWIP_RAW                        (1)
+
 //
 // Enable IPV4 networking
 //
 #define LWIP_IPV4                       (1)
 
+/**
+ * LWIP_AUTOIP==1: Enable AUTOIP module.
+ */
+// #define LWIP_AUTOIP                  (1)
+
+/**
+ * LWIP_DHCP_AUTOIP_COOP==1: Allow DHCP and AUTOIP to be both enabled on
+ * the same interface at the same time.
+ */
+// #define LWIP_DHCP_AUTOIP_COOP        (1)
+
 //
 // Enable IPV6 networking
 //
 #define LWIP_IPV6                       (1)
-#define LWIP_IPV6_AUTOCONFIG            (1)
-#define LWIP_IPV6_SEND_ROUTER_SOLICIT   (1)
-#define LWIP_ICMP6                      (1)
-#define LWIP_IPV6_MLD                   (1)
 
 #define ETHARP_SUPPORT_STATIC_ENTRIES   (1)
 
@@ -71,14 +80,13 @@
 //
 #define LWIP_PROVIDE_ERRNO              (1)
 
-#ifndef __ICCARM__
+#if defined(__GNUC__) && !defined(__ARMCC_VERSION)
 //
 // Use the timeval from the GCC library, not the one
 // from LWIP
 //
 #define LWIP_TIMEVAL_PRIVATE            (0)
 #endif
-
 
 //
 // Make sure DHCP is part of the stack
@@ -116,18 +124,18 @@
 //
 #define TCP_MSS                         (WHD_PAYLOAD_MTU)
 
-#define 	LWIP_CHECKSUM_CTRL_PER_NETIF   1
-#define 	CHECKSUM_GEN_IP   1
-#define 	CHECKSUM_GEN_UDP   1
-#define 	CHECKSUM_GEN_TCP   1
-#define 	CHECKSUM_GEN_ICMP   1
-#define 	CHECKSUM_GEN_ICMP6   1
-#define 	CHECKSUM_CHECK_IP   1
-#define 	CHECKSUM_CHECK_UDP   1
-#define 	CHECKSUM_CHECK_TCP   1
-#define 	CHECKSUM_CHECK_ICMP   1
-#define 	CHECKSUM_CHECK_ICMP6   1
-#define 	LWIP_CHECKSUM_ON_COPY   1
+#define     LWIP_CHECKSUM_CTRL_PER_NETIF   1
+#define     CHECKSUM_GEN_IP   1
+#define     CHECKSUM_GEN_UDP   1
+#define     CHECKSUM_GEN_TCP   1
+#define     CHECKSUM_GEN_ICMP   1
+#define     CHECKSUM_GEN_ICMP6   1
+#define     CHECKSUM_CHECK_IP   1
+#define     CHECKSUM_CHECK_UDP   1
+#define     CHECKSUM_CHECK_TCP   1
+#define     CHECKSUM_CHECK_ICMP   1
+#define     CHECKSUM_CHECK_ICMP6   1
+#define     LWIP_CHECKSUM_ON_COPY   1
 
 //
 // Enable the thread safe NETCONN interface layer
@@ -162,7 +170,7 @@
 
 #define LWIP_SOCKET                     (1)
 #define LWIP_NETCONN                    (1)
-#define DEFAULT_TCP_RECVMBOX_SIZE       (6)
+#define DEFAULT_TCP_RECVMBOX_SIZE       (12)
 #define TCPIP_MBOX_SIZE                 (16)
 #define TCPIP_THREAD_STACKSIZE          (4*1024)
 #define TCPIP_THREAD_PRIO               (4)
@@ -218,6 +226,13 @@
 #define MEMP_NUM_NETCONN                16
 
 
+/* Turn off LWIP_STATS in Release build */
+#ifdef DEBUG
+#define LWIP_STATS 1
+#else
+#define LWIP_STATS 0
+#endif
+
 /**
  * LWIP_TCPIP_CORE_LOCKING
  * Creates a global mutex that is held during TCPIP thread operations.
@@ -256,5 +271,7 @@
 #define LWIP_NETIF_STATUS_CALLBACK    (1)
 #define LWIP_NETIF_LINK_CALLBACK      (1)
 #define LWIP_NETIF_REMOVE_CALLBACK    (1)
+
+#define LWIP_CHKSUM_ALGORITHM         (3)
 
 extern void sys_check_core_locking() ;

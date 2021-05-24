@@ -135,7 +135,7 @@ void http_client_task(void *arg){
     cy_http_client_t clientHandle;
 
     // Create the HTTP Client
-    result = cy_http_client_create(&credentials, &serverInfo, (void*)disconnect_callback, NULL, &clientHandle);
+    result = cy_http_client_create(&credentials, &serverInfo, disconnectCallback, NULL, &clientHandle);
     if(result != CY_RSLT_SUCCESS){
 		printf("HTTP Client Creation Failed!\n");
 		CY_ASSERT(0);
@@ -192,8 +192,8 @@ void http_client_task(void *arg){
 		potPosition = (adc_out * (360 - 0) / (2399 - 0) + 0);
 
 		// Create the json representing the position of the potentiometer
-		sprintf(eventValue, "{\"key\":\"PotPosition\",\"value\":\"%d\"}", potPosition);
-		printf("Sending potentiometer position: %d.\n", potPosition);
+		sprintf(eventValue, "{\"key\":\"PotPosition\",\"value\":\"%ld\"}", potPosition);
+		printf("Sending potentiometer position: %ld.\n", potPosition);
 		bodyLength = strlen(eventValue);
 
 		// Create Request
@@ -222,7 +222,7 @@ void http_client_task(void *arg){
 		header[2].value = "application/json";
 		header[2].value_len = strlen("application/json");
 		// Write Headers
-		result = cy_http_client_write_header(clientHandle, &request, &header, num_header);
+		result = cy_http_client_write_header(clientHandle, &request, header, num_header);
 		if(result != CY_RSLT_SUCCESS){
 			printf("HTTP Client Header Write Failed!\n");
 			CY_ASSERT(0);

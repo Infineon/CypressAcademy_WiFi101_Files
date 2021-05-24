@@ -94,9 +94,11 @@ SOURCES=
 # directories (without a leading -I).
 INCLUDES=
 
+# Custom configuration of mbedtls library.
+MBEDTLSFLAGS = MBEDTLS_USER_CONFIG_FILE='"mbedtls_user_config.h"'
+
 # Add additional defines to the build process (without a leading -D).
-DEFINES+=MBEDTLS_USER_CONFIG_FILE='"mbedtls_user_config.h"'
-DEFINES+=CYBSP_WIFI_CAPABLE
+DEFINES=$(MBEDTLSFLAGS) CYBSP_WIFI_CAPABLE CY_RETARGET_IO_CONVERT_LF_TO_CRLF CY_RTOS_AWARE 
 
 # Select softfp or hardfp floating point. Default is softfp.
 VFP_SELECT=

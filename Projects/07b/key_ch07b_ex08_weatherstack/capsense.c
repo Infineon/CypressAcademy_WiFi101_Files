@@ -20,6 +20,23 @@ static char* cities[] =										// Arbitrary ist of cities
 
 static TaskHandle_t capsense_thread;						// Allow the ISR to notify the thread
 
+/* SysPm callback params */
+cy_stc_syspm_callback_params_t callback_params =
+{
+    .base       = CYBSP_CSD_HW,
+    .context    = &cy_capsense_context
+};
+// Capsense deep sleep callback
+cy_stc_syspm_callback_t capsense_deep_sleep_cb =
+{
+    Cy_CapSense_DeepSleepCallback,
+    CY_SYSPM_DEEPSLEEP,
+    (CY_SYSPM_SKIP_CHECK_FAIL | CY_SYSPM_SKIP_BEFORE_TRANSITION | CY_SYSPM_SKIP_AFTER_TRANSITION),
+    &callback_params,
+    NULL,
+    NULL
+};
+
 /*
  * capsense_isr()
  *
@@ -69,6 +86,7 @@ void capsense_task( void* arg )
 	Cy_SysInt_Init( &CapSense_interrupt_config, capsense_isr );
 	NVIC_ClearPendingIRQ( CapSense_interrupt_config.intrSrc );
 	NVIC_EnableIRQ( CapSense_interrupt_config.intrSrc );
+	Cy_SysPm_RegisterCallback(&capsense_deep_sleep_cb);
 
 	Cy_CapSense_Enable( &cy_capsense_context );
 	

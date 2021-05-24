@@ -161,7 +161,10 @@ int main(void)
     __enable_irq();
 
     /* \x1b[2J\x1b[;H - ANSI ESC sequence to clear screen. */
-    printf("\x1b[2J\x1b[;H\n");
+	printf("\x1b[2J\x1b[;H");
+	printf("============================================================\n");
+	printf("WiFi 101 - 5: Print\n");
+	printf("============================================================\n\n");
 
     /* Create the MQTT Client task. */
 	xTaskCreate(wifi_connect, "wifi_connect_task", 1024, NULL, 5, NULL);

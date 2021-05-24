@@ -53,7 +53,7 @@
 // Middleware Headers
 #include "semphr.h"
 #include "cy_retarget_io.h"
-#include "iot_mqtt.h"
+#include "cy_mqtt_api.h"
 #include "semphr.h"
 #include "cy_wcm.h"
 #include "cy_lwip.h"
@@ -88,13 +88,13 @@ void publish(char valueToPublish[]);
 TaskHandle_t publisher_task_handle;
 
 /* Structure to store publish message information. */
-IotMqttPublishInfo_t publishInfo =
+cy_mqtt_publish_info_t publish_info =
 {
-    .qos = (IotMqttQos_t) MQTT_MESSAGES_QOS,
-    .pTopicName = UPDATE_TOPIC,
-    .topicNameLength = (sizeof(UPDATE_TOPIC) - 1),
-    .retryMs = PUBLISH_RETRY_MS,
-    .retryLimit = PUBLISH_RETRY_LIMIT
+    .qos = (cy_mqtt_qos_t) MQTT_MESSAGES_QOS,
+    .topic = UPDATE_TOPIC,
+    .topic_len = (sizeof(UPDATE_TOPIC) - 1),
+    .retain = false,
+    .dup = false
 };
 
 // Defined in main.c
@@ -131,9 +131,9 @@ void publisher_task(void *pvParameters){
     (void)pvParameters;
 
     // Send my IP address to the cloud
-    cy_wcm_ip_address_t * myIP;
-    cy_wcm_get_ip_addr(CY_WCM_INTERFACE_TYPE_STA, myIP, 0);
-    sprintf(payloadString, "{\"state\":{\"reported\":{\"IP Address\":\"%s\"}}}", ip4addr_ntoa((const ip4_addr_t *) myIP->ip.v4));
+    cy_wcm_ip_address_t myIP = {0};
+    cy_wcm_get_ip_addr(CY_WCM_INTERFACE_TYPE_STA, &myIP, 0);
+    sprintf(payloadString, "{\"state\":{\"reported\":{\"IP Address\":\"%s\"}}}", ip4addr_ntoa((const ip4_addr_t *) &myIP.ip.v4));
     publish(payloadString);
 
     while(true){
@@ -181,27 +181,28 @@ void publisher_task(void *pvParameters){
  *
  ******************************************************************************/
 void publish(char valueToPublish[]){
+
 	/* Status variable */
-	int result;
-	/* Status of MQTT publish operation that will be communicated to MQTT
-	 * client task using a message queue in case of failure during publish.
-	 */
-	mqtt_result_t mqtt_publish_status = MQTT_PUBLISH_FAILURE;
+	cy_rslt_t result;
 
-	publishInfo.pPayload = &valueToPublish[0];
-	publishInfo.payloadLength = strlen(publishInfo.pPayload);
+	/* Command to the MQTT client task */
+	mqtt_task_cmd_t mqtt_task_cmd;
 
-	printf("Publishing '%s' of length '%d' on the topic '%s'\n\n", (char *)publishInfo.pPayload, strlen(publishInfo.pPayload), publishInfo.pTopicName);
+	publish_info.payload = &valueToPublish[0];
+	publish_info.payload_len = strlen(publish_info.payload);
+
+	printf("Publishing '%s' of length '%d' on the topic '%s'\n\n", (char *)publish_info.payload, publish_info.payload_len, publish_info.topic);
 
 	/* Publish the MQTT message with the configured settings. */
-	result = IotMqtt_PublishSync(mqttConnection, &publishInfo, 0, MQTT_TIMEOUT_MS);
+	result = cy_mqtt_publish(mqtt_connection, &publish_info);
+	if (result != CY_RSLT_SUCCESS){
+		printf("  Publisher: MQTT Publish failed with error 0x%0X.\n\n", (int)result);
 
-	if (result != IOT_MQTT_SUCCESS){
-		/* Inform the MQTT client task about the publish failure and suspend
-		 * the task for it to be killed by the MQTT client task later.
+		/* Communicate the publish failure with the the MQTT
+		 * client task.
 		 */
-		printf("MQTT Publish failed with error '%s'.\n\n", IotMqtt_strerror((IotMqttError_t) result));
-		xQueueOverwrite(mqtt_status_q, &mqtt_publish_status);
+		mqtt_task_cmd = HANDLE_MQTT_PUBLISH_FAILURE;
+		xQueueSend(mqtt_task_q, &mqtt_task_cmd, portMAX_DELAY);
 		vTaskSuspend( NULL );
 	}
 }

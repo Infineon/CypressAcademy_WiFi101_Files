@@ -79,7 +79,7 @@ VERBOSE=
 # ... then code in directories named COMPONENT_foo and COMPONENT_bar will be
 # added to the build
 #
-COMPONENTS += FREERTOS LWIP MBEDTLS EMWIN_NOSNTS
+COMPONENTS += FREERTOS LWIP MBEDTLS SECURE_SOCKETS EMWIN_NOSNTS
 
 # Like COMPONENTS, but disable optional code that was enabled by default.
 DISABLE_COMPONENTS=
@@ -148,6 +148,8 @@ POSTBUILD=
 ################################################################################
 # Paths
 ################################################################################
+
+CY_IGNORE+=$(SEARCH_aws-iot-device-sdk-embedded-C)/libraries/standard/coreHTTP
 
 # Relative path to the project directory (default is the Makefile's directory).
 #
