@@ -65,6 +65,24 @@ void pot_task(void *pvParameters){
 
 	/* Initialize ADC. The ADC block which can connect to pin 10[6] is selected */
 	rslt = cyhal_adc_init(&adc_obj, P10_6, NULL);
+
+	// ADC configuration structure
+	const cyhal_adc_config_t ADCconfig ={
+		.continuous_scanning = false,
+		.resolution = 12,
+		.average_count = 1,
+		.average_mode_flags = 0,
+		.ext_vref_mv = 0,
+		.vneg = CYHAL_ADC_VNEG_VREF,
+		.vref = CYHAL_ADC_REF_VDDA,
+		.ext_vref = NC,
+		.is_bypassed = false,
+		.bypass_pin = NC
+	};
+
+	// Configure to use VDD as Vref
+	rslt = cyhal_adc_configure(&adc_obj, &ADCconfig);
+
 	/* Initialize ADC channel, allocate channel number 0 to pin 10[6] as this is the first channel initialized */
 	// pin 10_6 is connected to the potentiometer
 	const cyhal_adc_channel_config_t channel_config =
@@ -87,8 +105,8 @@ void pot_task(void *pvParameters){
     	/* Read the ADC conversion result for corresponding ADC channel in millivolts. */
 		adc_out = cyhal_adc_read_uv(&adc_chan_0_obj) / 1000;
 
-		// adc_out values range from 0-2399 - actualTemp values range from 50-90
-		newActualTemp = (adc_out * (ACTUALTEMPMAX - ACTUALTEMPMIN) / (2399 - 0) + ACTUALTEMPMIN);
+		// adc_out values range from 0-3303 - actualTemp values range from 50-90
+		newActualTemp = (adc_out * (ACTUALTEMPMAX - ACTUALTEMPMIN) / (3303 - 0) + ACTUALTEMPMIN);
 
 		// If the temp changed, record it, then notify the publisher task so it can publish the new value
 		xSemaphoreTake(actualTempSemaphore, portMAX_DELAY);

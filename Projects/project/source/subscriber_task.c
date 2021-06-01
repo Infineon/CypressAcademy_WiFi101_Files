@@ -74,7 +74,6 @@
 * Function Prototypes
 *******************************************************************************/
 static void subscribe_to_topic(void);
-static void unsubscribe_from_topic(void);
 
 /******************************************************************************
 * Global Variables
@@ -203,7 +202,6 @@ void mqtt_subscription_callback(cy_mqtt_publish_info_t *received_msg_info){
 
     /* Received MQTT message */
 	const char *received_msg = received_msg_info->payload;
-	int received_msg_len = received_msg_info->payload_len;
 
     /* Print information about the incoming PUBLISH message. */
     printf("  Subscriber: Incoming MQTT message received:\n"
@@ -228,29 +226,4 @@ void mqtt_subscription_callback(cy_mqtt_publish_info_t *received_msg_info){
     }
     xSemaphoreGive(setTempSemaphore);
 }
-
-/******************************************************************************
- * Function Name: unsubscribe_from_topic
- ******************************************************************************
- * Summary:
- *  Function that unsubscribes from the topic specified by the macro 
- *  'MQTT_SUB_TOPIC'.
- *
- * Parameters:
- *  void 
- *
- * Return:
- *  void 
- *
- ******************************************************************************/
-static void unsubscribe_from_topic(void){
-    cy_rslt_t result = cy_mqtt_unsubscribe(mqtt_connection,
-                                           (cy_mqtt_unsubscribe_info_t *) &subscribe_info,
-                                           SUBSCRIPTION_COUNT);
-
-    if (result != CY_RSLT_SUCCESS){
-        printf("MQTT Unsubscribe operation failed with error 0x%0X!\n", (int)result);
-    }
-}
-
 /* [] END OF FILE */
